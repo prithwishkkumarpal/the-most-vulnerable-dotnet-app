@@ -28,7 +28,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="RazorLight" Version="2.3.1" />
     <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
-    <PackageReference Include="System.Linq.Dynamic.Core" Version="1.4.5" />
+    <PackageReference Include="System.Linq.Dynamic.Core" Version="1.6.0" />
     <PackageReference Include="System.Runtime.Serialization.Formatters" Version="9.0.0" />
   </ItemGroup>
 
