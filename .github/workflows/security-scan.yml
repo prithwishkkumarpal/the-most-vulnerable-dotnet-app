@@ -1,0 +1,30 @@
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Run Semgrep for Code Vulnerabilities
+      - name: Semgrep OSS Scan
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep \
+          semgrep scan --config auto --sarif --output=semgrep.sarif
+
+      # 2. Run TruffleHog for Hardcoded Secrets
+      - name: TruffleHog Scan
+        run: |
+          docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
+          github --repo ${{ github.repository }} --json > secrets.json
+
+      # 3. Upload Results (So you can download/view them)
+      - name: Upload Scan Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-results
+          path: |
+            semgrep.sarif
+            secrets.json
