@@ -1,0 +1,38 @@
+name: "Security Audit (OSS)"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # Allows the scan to report to the 'Security' tab
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. SAST Scan (Vulnerabilities & Improper Configs)
+      - name: Semgrep OSS Scan
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep \
+          semgrep scan --config auto --sarif --output=report.sarif
+
+      # 2. Secret Scan (Hardcoded Info)
+      - name: TruffleHog OSS Scan
+        run: |
+          docker run --rm -v "$(pwd):/pwd" trufflesecurity/trufflehog:latest \
+          github --repo ${{ github.repository }} --json > secrets.json
+
+      # 3. Upload Results to GitHub Security Tab (Free for Public Repos)
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report.sarif
