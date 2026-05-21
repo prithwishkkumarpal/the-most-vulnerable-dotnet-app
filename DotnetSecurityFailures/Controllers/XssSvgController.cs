@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
+using System.Net.Sockets;
 using System.Xml.Linq;
 
 namespace DotnetSecurityFailures.Controllers;
@@ -55,7 +57,6 @@ public class XssSvgController : VulnerabilityDemoControllerBase
                 .Where(href => !string.IsNullOrEmpty(href) && !href.StartsWith("data:"))
                 .ToList();
 
-            // DANGEROUS: Fetch each external URL (SSRF risk)
             foreach (var href in images)
             {
                 var requestInfo = new ExternalRequestInfo
@@ -63,6 +64,15 @@ public class XssSvgController : VulnerabilityDemoControllerBase
                     Url = href,
                     IsInternal = IsInternalUrl(href)
                 };
+
+                var validationError = await ValidateUrlAsync(href);
+                if (validationError != null)
+                {
+                    requestInfo.Success = false;
+                    requestInfo.Error = validationError;
+                    externalRequests.Add(requestInfo);
+                    continue;
+                }
 
                 try
                 {
@@ -73,8 +83,8 @@ public class XssSvgController : VulnerabilityDemoControllerBase
                     if (response.IsSuccessStatusCode)
                     {
                         var content = await response.Content.ReadAsStringAsync();
-                        requestInfo.ContentPreview = content.Length > 200 
-                            ? content.Substring(0, 200) + "..." 
+                        requestInfo.ContentPreview = content.Length > 200
+                            ? content.Substring(0, 200) + "..."
                             : content;
                         requestInfo.ContentLength = content.Length;
                     }
@@ -113,6 +123,59 @@ public class XssSvgController : VulnerabilityDemoControllerBase
                 message = $"Failed to parse SVG: {ex.Message}"
             });
         }
+    }
+
+    private static async Task<string?> ValidateUrlAsync(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return "Invalid URL";
+
+        if (uri.Scheme != "https" && uri.Scheme != "http")
+            return $"Scheme '{uri.Scheme}' is not allowed; only http and https are permitted";
+
+        IPAddress[] addresses;
+        try
+        {
+            addresses = uri.HostNameType == UriHostNameType.IPv4 || uri.HostNameType == UriHostNameType.IPv6
+                ? new[] { IPAddress.Parse(uri.Host) }
+                : await Dns.GetHostAddressesAsync(uri.Host);
+        }
+        catch
+        {
+            return "Unable to resolve host";
+        }
+
+        if (addresses.Any(IsPrivateIpAddress))
+            return "Requests to private or internal network addresses are not allowed";
+
+        return null;
+    }
+
+    private static bool IsPrivateIpAddress(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address))
+            return true;
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal)
+                return true;
+            if (address.IsIPv4MappedToIPv6)
+                address = address.MapToIPv4();
+            else
+                return false;
+        }
+
+        byte[] bytes = address.GetAddressBytes();
+        return bytes[0] switch
+        {
+            10 => true,
+            127 => true,
+            169 when bytes[1] == 254 => true,
+            172 when bytes[1] >= 16 && bytes[1] <= 31 => true,
+            192 when bytes[1] == 168 => true,
+            _ => false
+        };
     }
 
     private bool IsInternalUrl(string url)
